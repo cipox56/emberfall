@@ -23,6 +23,25 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Word-wrap `text` into lines that fit maxWidth at the current font.
+// Returns the lines; caller draws them centered at cx.
+function wrapText(ctx, text, maxWidth) {
+  const words = String(text).split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 export function render(ctx, game) {
   const w = game.w;
   const h = game.h;
@@ -368,7 +387,19 @@ function drawHUD(ctx, game) {
   ctx.save();
   ctx.textBaseline = 'alphabetic';
 
+  // Semi-transparent backing panel so HUD text stays readable over the arena.
+  function panel(x, y, pw, ph) {
+    ctx.fillStyle = CONFIG.colors.hudBg;
+    roundRect(ctx, x, y, pw, ph, 8);
+    ctx.fill();
+  }
+
   // Score, top-left.
+  ctx.font = '700 26px ' + FONT;
+  const scoreW = ctx.measureText('SCORE  ' + game.score).width;
+  ctx.font = '600 15px ' + FONT;
+  const bestW = ctx.measureText('BEST  ' + game.best).width;
+  panel(12, 10, Math.max(scoreW, bestW) + 24, 58);
   ctx.textAlign = 'left';
   ctx.fillStyle = CONFIG.colors.text;
   ctx.font = '700 26px ' + FONT;
@@ -378,6 +409,12 @@ function drawHUD(ctx, game) {
   ctx.fillText('BEST  ' + game.best, 20, 58);
 
   // Wave, top-center.
+  ctx.font = '700 22px ' + FONT;
+  const waveW = ctx.measureText('WAVE  ' + Math.max(1, game.wave) + ' / 10').width;
+  ctx.font = '600 14px ' + FONT;
+  const waveSubW = ctx.measureText(fmtTime(game.elapsed) + '   •   ' + game.kills + ' KILLS').width;
+  const wavePw = Math.max(waveW, waveSubW) + 24;
+  panel(w / 2 - wavePw / 2, 10, wavePw, 58);
   ctx.textAlign = 'center';
   ctx.fillStyle = CONFIG.colors.text;
   ctx.font = '700 22px ' + FONT;
@@ -387,6 +424,12 @@ function drawHUD(ctx, game) {
   ctx.fillText(fmtTime(game.elapsed) + '   •   ' + game.kills + ' KILLS', w / 2, 58);
 
   // Enemies left, top-right.
+  ctx.font = '700 22px ' + FONT;
+  const fiendsW = ctx.measureText('FIENDS LEFT  ' + game.enemiesLeft()).width;
+  ctx.font = '600 14px ' + FONT;
+  const hintW = ctx.measureText('M mute  •  P pause').width;
+  const fiendsPw = Math.max(fiendsW, hintW) + 24;
+  panel(w - 12 - fiendsPw, 10, fiendsPw, 58);
   ctx.textAlign = 'right';
   ctx.fillStyle = '#ffb347';
   ctx.font = '700 22px ' + FONT;
@@ -399,6 +442,11 @@ function drawHUD(ctx, game) {
   const bw = 240;
   const bx = 20;
   const by = game.h - 34;
+  // Backing panel covers the HP label, the bar, and any active timers above it.
+  let hpTop = by - 30;
+  if (p.shieldTimer > 0) hpTop -= 20;
+  if (p.spreadTimer > 0) hpTop -= 20;
+  panel(12, hpTop - 8, bw + 16, (by + 16 + 8) - (hpTop - 8));
   ctx.textAlign = 'left';
   ctx.fillStyle = CONFIG.colors.text;
   ctx.font = '700 15px ' + FONT;
@@ -435,6 +483,7 @@ function drawHUD(ctx, game) {
   const dw = 160;
   const dx = w - 20 - dw;
   const dy = game.h - 34;
+  panel(dx - 8, dy - 30, dw + 16, 56);
   const ready = p.dashCdTimer <= 0;
   ctx.textAlign = 'left';
   ctx.fillStyle = ready ? '#37e0d8' : CONFIG.colors.textDim;
@@ -586,11 +635,21 @@ function drawUpgrade(ctx, game) {
     ctx.font = '700 16px ' + FONT;
     ctx.fillText('[' + (i + 1) + ']', x + cw / 2, y + 34);
     ctx.fillStyle = '#ffd166';
-    ctx.font = '800 24px ' + FONT;
+    // Shrink the name font if it would not fit inside the card.
+    let nameSize = 24;
+    ctx.font = '800 ' + nameSize + 'px ' + FONT;
+    while (ctx.measureText(up.name).width > cw - 32 && nameSize > 16) {
+      nameSize -= 1;
+      ctx.font = '800 ' + nameSize + 'px ' + FONT;
+    }
     ctx.fillText(up.name, x + cw / 2, y + 76);
     ctx.fillStyle = CONFIG.colors.text;
-    ctx.font = '600 17px ' + FONT;
-    ctx.fillText(up.desc, x + cw / 2, y + 112);
+    ctx.font = '600 16px ' + FONT;
+    const descLines = wrapText(ctx, up.desc, cw - 36);
+    const descStart = y + 112 - (descLines.length - 1) * 10;
+    descLines.forEach((line, li) => {
+      ctx.fillText(line, x + cw / 2, descStart + li * 21);
+    });
     ctx.fillStyle = CONFIG.colors.textDim;
     ctx.font = '600 14px ' + FONT;
     ctx.fillText('Click to take', x + cw / 2, y + 156);
